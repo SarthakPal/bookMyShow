@@ -18,11 +18,13 @@ public class BookingService {
 
     private final Map<String, Booking> showBookings;
     private final SeatLockProvider seatLockProvider;
+    private final PaymentsService paymentsService;
     private final ScheduledExecutorService expiryTimer = Executors.newScheduledThreadPool(1);
 
-    public BookingService(SeatLockProvider seatLockProvider) {
+    public BookingService(SeatLockProvider seatLockProvider, PaymentsService paymentsService) {
         this.seatLockProvider = seatLockProvider;
         this.showBookings = new HashMap<>();
+        this.paymentsService = paymentsService;
     }
 
     public Booking getBooking(@NonNull final String bookingId) {
@@ -95,7 +97,18 @@ public class BookingService {
                 throw new BadRequestException();
             }
         }
-        booking.confirmBooking();
+        // Assuming makePayment() returns a boolean indicating payment success
+        if (booking.getPayment().makePayment()) {
+            // Update seat status to "booked"
+            for (Seat seat : booking.getSeatsBooked()) {
+                seat.setStatus(SeatStatus.BOOKED);
+            }
+
+            booking.confirmBooking();
+            expiryTimer.shutdown(); // Cancel the expiry timer
+        } else {
+            paymentsService.processPaymentFailed(booking, user);
+        }
     }
 
     private boolean isAnySeatAlreadyBooked(final Show show, final List<Seat> seats) {
